@@ -204,12 +204,12 @@
         <div class="m-grid">
             <div class="input-suggest-box">
                 <label>2. Nhật Thần</label>
-                <input type="text" id="mNhat" placeholder="Gõ Can..." autocomplete="off" oninput="handleSuggestGanChi(this, 'sugNhat')">
+                <input type="text" id="mNhat" placeholder="Gõ Can..." autocomplete="off" oninput="handleSuggestGanChi(this, 'sugNhat'); syncNhatNguyetToTS()">
                 <div id="sugNhat" class="suggestions-list"></div>
             </div>
             <div class="input-suggest-box">
                 <label>3. Nguyệt Lệnh</label>
-                <input type="text" id="mNguyet" placeholder="Gõ Can..." autocomplete="off" oninput="handleSuggestGanChi(this, 'sugNguyet')">
+                <input type="text" id="mNguyet" placeholder="Gõ Can..." autocomplete="off" oninput="handleSuggestGanChi(this, 'sugNguyet'); syncNhatNguyetToTS()">
                 <div id="sugNguyet" class="suggestions-list"></div>
             </div>
         </div>
@@ -705,6 +705,56 @@ function populateChiSelects() {
     });
 }
 
+/** Lấy Địa Chi từ chuỗi Can Chi (vd: "Giáp Tý" → "Tý", "Tý" → "Tý") */
+function extractChiFromCanChi(str) {
+    if (!str) return "";
+    const s = str.trim();
+    if (!s) return "";
+    // Ưu tiên match Chi chuẩn (có dấu)
+    for (const chi of CHI_LIST) {
+        if (s === chi || s.endsWith(" " + chi) || s.endsWith(chi)) {
+            // Kiểm tra không phải substring nhầm (vd Tý trong Tỵ)
+            const parts = s.split(/\s+/);
+            const last = parts[parts.length - 1];
+            if (last === chi || last.startsWith(chi)) return chi;
+        }
+    }
+    // Fallback: lấy từ cuối
+    const parts = s.split(/\s+/);
+    const last = parts[parts.length - 1];
+    // Chuẩn hóa một số biến thể không dấu
+    const map = {
+        "Ty": "Tý", "Tý": "Tý", "Suu": "Sửu", "Sửu": "Sửu",
+        "Dan": "Dần", "Dần": "Dần", "Mao": "Mão", "Mão": "Mão",
+        "Thin": "Thìn", "Thìn": "Thìn", "Ty2": "Tỵ", "Tỵ": "Tỵ",
+        "Ngo": "Ngọ", "Ngọ": "Ngọ", "Mui": "Mùi", "Mùi": "Mùi",
+        "Than": "Thân", "Thân": "Thân", "Dau": "Dậu", "Dậu": "Dậu",
+        "Tuat": "Tuất", "Tuất": "Tuất", "Hoi": "Hợi", "Hợi": "Hợi"
+    };
+    if (map[last]) return map[last];
+    if (CHI_LIST.includes(last)) return last;
+    return "";
+}
+
+/** Đồng bộ Nhật / Nguyệt từ ô mNhat, mNguyet sang select tsNhat, tsNguyet */
+function syncNhatNguyetToTS() {
+    const mNhatEl = document.getElementById("mNhat");
+    const mNguyetEl = document.getElementById("mNguyet");
+    const tsNhatEl = document.getElementById("tsNhat");
+    const tsNguyetEl = document.getElementById("tsNguyet");
+    if (!mNhatEl || !mNguyetEl || !tsNhatEl || !tsNguyetEl) return;
+
+    const chiNhat = extractChiFromCanChi(mNhatEl.value);
+    const chiNguyet = extractChiFromCanChi(mNguyetEl.value);
+
+    if (chiNhat && CHI_LIST.includes(chiNhat)) {
+        tsNhatEl.value = chiNhat;
+    }
+    if (chiNguyet && CHI_LIST.includes(chiNguyet)) {
+        tsNguyetEl.value = chiNguyet;
+    }
+}
+
 function autoFillFromQueChu() {
     const cungKeyChu = document.getElementById("selectCung").value;
     const qNameChu = document.getElementById("selectQue").value;
@@ -910,6 +960,10 @@ function handleSuggestGanChi(inputEl, sugId) {
             div.onclick = function() {
                 inputEl.value = item;
                 sugBox.style.display = 'none';
+                // Đồng bộ ngay khi chọn từ gợi ý
+                if (inputEl.id === 'mNhat' || inputEl.id === 'mNguyet') {
+                    syncNhatNguyetToTS();
+                }
             };
             sugBox.appendChild(div);
         });
@@ -1011,6 +1065,9 @@ function processModuleLogic() {
         if (typeof updateDongCounter === 'function') updateDongCounter();
         if (typeof processDich === 'function') processDich();
     }
+
+    // Đồng bộ Nhật / Nguyệt sang mục Trường Sinh
+    syncNhatNguyetToTS();
 }
 
 function tinhCanChiTuDuongLich() {
@@ -1052,6 +1109,9 @@ function tinhCanChiTuDuongLich() {
         document.getElementById('mThaiTue').value = '';
         alert("Đã điền Giờ + Nhật. Riêng Tháng/Năm ngoài phạm vi dữ liệu Tiết Khí (2023–2046) của calendar-core.js nên chưa tự suy được — vui lòng tự gõ tay 2 ô Nguyệt Lệnh / Thái Tuế bên dưới.");
     }
+
+    // Auto-fill Nhật & Nguyệt (Chi) sang mục Trường Sinh & Vượng Suy
+    syncNhatNguyetToTS();
 }
 
 /* KHUNG NẠP MODULE RỜI (m01.js ... m60.js) */
