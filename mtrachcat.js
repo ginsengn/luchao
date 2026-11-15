@@ -1,21 +1,18 @@
 // =========================================================
-//  MTRACHCAT2.JS (v2 – CÓ GIAO DIỆN NÚT TÍM) — Trạch Cát: Niên–Nguyệt khắc/hợp Sơn gia (Mộ Long)
-//  Nguồn logic: bài "Trạch Cát Thần Bí – Bài 1" + 2 bảng ảnh trong bài.
+//  MTRACHCAT2.JS (v3 – BỔ TÚC LOGIC HIỆP KỶ BIỆN PHƯƠNG THƯ)
+//  Trạch Cát: Niên–Nguyệt khắc/hợp Sơn gia (Mộ Long Biến Vận)
 //
-//  PHỤ THUỘC (load theo thứ tự trong total.html):
-//    1) thư viện lịch âm (window._calendar)
-//    2) calendar-core.js   (dùng NL_getDayContext)
-//    3) mtrachcat.js       (file này)
-//
-//  Module KHÔNG tự tính lịch. Mọi can chi Năm/Tháng/Ngày/Giờ đều lấy từ
-//  NL_getDayContext() của calendar-core.js (Năm+Tháng theo Tiết Khí thật,
-//  Ngày theo lịch Sóc Vọng, Giờ theo Ngũ Thử Độn).
+//  NÂNG CẤP TRONG v3:
+//    1. Quy tắc "Đông Chí trùng biến" riêng cho 4 sơn Kim (Càn, Hợi, Đoài/Dậu, Đinh).
+//    2. Đặc biệt cát (DAC_BIET_CAT) khi Nạp Âm Mộ Long khắc Nạp Âm Thái Tuế (trụ Niên).
+//    3. Bổ sung cảnh báo ngũ hành kỵ trực tiếp theo Bảng Mộ Long Biến Vận.
+//    4. Thêm ghi chú phạm vi ứng dụng (Đào đất / Phần ngầm vs Phần nổi).
 //
 //  API (window.TrachCat):
-//    moLong(son, can)                 -> mộ long của sơn theo can năm
+//    moLong(son, can, laSauDongChi)   -> mộ long của sơn theo can năm
 //    danhGiaThoiDiem(son, y, m, d, chi)
-//    quetKhoang(son, tu, den, opts)   -> liệt kê ngày/giờ tốt
-//    CONFIG                           -> quy ước có thể chỉnh
+//    quetKhoang(son, tu, den, opts)
+//    CONFIG
 // =========================================================
 (function (root) {
     'use strict';
@@ -24,10 +21,10 @@
     const CAN = ['Giáp','Ất','Bính','Đinh','Mậu','Kỷ','Canh','Tân','Nhâm','Quý'];
     const CHI = ['Tý','Sửu','Dần','Mão','Thìn','Tỵ','Ngọ','Mùi','Thân','Dậu','Tuất','Hợi'];
 
-    // Tên quái dùng thay cho 4 sơn chính vị (theo bảng 24 sơn trong bài)
+    // Tên quái dùng thay cho 4 sơn chính vị
     const QUAI_RA_CHI = { 'Khảm':'Tý', 'Ly':'Ngọ', 'Chấn':'Mão', 'Đoài':'Dậu' };
 
-    // Bảng Hồng Phạm Ngũ Hành (bảng ảnh số 1 trong bài) — 24 sơn
+    // Bảng Hồng Phạm Ngũ Hành (Chính vận 24 sơn)
     const SON_HANH = {
         'Giáp':'Thủy','Dần':'Thủy','Thìn':'Thủy','Tốn':'Thủy','Tuất':'Thủy','Tý':'Thủy','Tân':'Thủy','Thân':'Thủy',
         'Sửu':'Thổ','Quý':'Thổ','Khôn':'Thổ','Canh':'Thổ','Mùi':'Thổ',
@@ -36,8 +33,11 @@
         'Càn':'Kim','Hợi':'Kim','Dậu':'Kim','Đinh':'Kim'
     };
 
-    // Cục tam hợp -> chi Mộ khố. Thổ đi theo cục Thủy (bài quy định cùng Thìn).
+    // Cục tam hợp -> chi Mộ khố (Thủy & Thổ cùng mộ tại Thìn)
     const HANH_RA_MO = { 'Thủy':'Thìn','Thổ':'Thìn','Hỏa':'Tuất','Kim':'Sửu','Mộc':'Mùi' };
+
+    // Ngũ hành khắc Mộ vận (Hành kỵ dùng cho Năm, Tháng, Ngày, Giờ)
+    const HANH_BI_KHAC_BOI = { 'Mộc':'Kim', 'Kim':'Hỏa', 'Hỏa':'Thủy', 'Thủy':'Thổ', 'Thổ':'Mộc' };
 
     // 30 cặp nạp âm, bắt đầu từ Giáp Tý/Ất Sửu
     const NAP_AM = [
@@ -52,21 +52,19 @@
     const SINH = { 'Mộc':'Hỏa','Hỏa':'Thổ','Thổ':'Kim','Kim':'Thủy','Thủy':'Mộc' };
     const KHAC = { 'Mộc':'Thổ','Thổ':'Thủy','Thủy':'Hỏa','Hỏa':'Kim','Kim':'Mộc' };
 
-    // ---------- QUY ƯỚC CHỈNH ĐƯỢC (bài chưa quy định, mình chọn mặc định) ----------
+    // ---------- QUY ƯỚC CHỈNH ĐƯỢC ----------
     const CONFIG = {
-        // Mức của MỘT trụ so với mộ long
-        // Bài: đồng hành / sinh mộ long / bị mộ long khắc = tốt; khắc mộ long = đại hung;
-        // mộ long sinh ra nó = tiểu hung. Ví dụ 2 của bài gọi "sinh mộ long" là đại cát.
         mucTheoQuanHe: {
-            dongHanh:    'CAT',
-            sinhMoLong:  'DAI_CAT',
-            biMoLongKhac:'CAT',
-            moLongSinh:  'TIEU_HUNG',
-            khacMoLong:  'DAI_HUNG'
+            dongHanh:        'CAT',
+            sinhMoLong:      'DAI_CAT',
+            biMoLongKhac:    'CAT',          // Riêng trụ Niên sẽ nâng lên DAC_BIET_CAT
+            biMoLongKhacNien:'DAC_BIET_CAT', // Hiệp Kỷ: "Mộ vận nạp âm khắc Thái tuế nạp âm là đặc biệt cát"
+            moLongSinh:      'TIEU_HUNG',
+            khacMoLong:      'DAI_HUNG'
         },
         // Kết luận chung: Niên + 3 trụ (Tháng, Ngày, Giờ) — "3 chọi 1"
         xepLoai: function (nienMuc, ba) {
-            const tot = m => m === 'CAT' || m === 'DAI_CAT';
+            const tot = m => m === 'CAT' || m === 'DAI_CAT' || m === 'DAC_BIET_CAT';
             const soCat = ba.filter(tot).length;
             const coDaiHung = ba.indexOf('DAI_HUNG') !== -1;
             if (tot(nienMuc)) {
@@ -81,11 +79,18 @@
     };
 
     const NHAN_MUC = {
-        DAI_CAT:'Đại cát', CAT:'Cát', TIEU_HUNG:'Tiểu hung', DAI_HUNG:'Đại hung'
+        DAC_BIET_CAT:'Đặc biệt cát (Chế Thái Tuế)',
+        DAI_CAT:'Đại cát',
+        CAT:'Cát',
+        TIEU_HUNG:'Tiểu hung (Tiết khí)',
+        DAI_HUNG:'Đại hung (Khắc Mộ vận)'
     };
     const NHAN_LOAI = {
-        DAI_CAT:'Đại cát', CAT:'Cát', TRUNG_SACH:'Trung sách (3 chọi 1)',
-        HA_SACH:'Hạ sách — nên hoãn nếu được', NEN_TRANH:'Nên tránh'
+        DAI_CAT:'Đại cát',
+        CAT:'Cát',
+        TRUNG_SACH:'Trung sách (3 chọi 1)',
+        HA_SACH:'Hạ sách — nên hoãn nếu được',
+        NEN_TRANH:'Nên tránh'
     };
 
     // ---------- HÀM CƠ BẢN ----------
@@ -97,7 +102,6 @@
         return SON_HANH[s] ? s : null;
     }
 
-    // "Giáp Tý" -> { can, chi, idx60 }
     function parseCanChi(text) {
         const p = String(text || '').trim().split(/\s+/);
         if (p.length < 2) return null;
@@ -116,32 +120,72 @@
         return { canChi: cc.can + ' ' + cc.chi, ten: e[0], hanh: e[1] };
     }
 
-    // Ngũ Thử Độn: can của giờ/tháng Tý theo can năm: (2*(can%5)) % 10
-    function moLong(son, canNam) {
+    // Kiểm tra xem ngày có rơi vào khoảng Sau Đông Chí (từ ~21/12 Dương lịch) đến trước Lập Xuân (tháng 1 Dương lịch) không
+    function kiemTraSauDongChiTruocLapXuan(y, m, d, ctx) {
+        // Nếu calendar-core.js có trả về tên tiết khí hiện hành (VD: "Đông chí", "Tiểu hàn", "Đại hàn")
+        if (ctx && ctx.tietKhi && ctx.tietKhi.ten) {
+            const tenTK = ctx.tietKhi.ten.toLowerCase();
+            if (tenTK.includes('đông chí') || tenTK.includes('tiểu hàn') || tenTK.includes('đại hàn')) {
+                return true;
+            }
+        }
+        // Fallback an toàn theo Dương lịch: từ 22/12 đến 31/12 luôn nằm sau Đông Chí và trước Lập Xuân
+        if (m === 12 && d >= 22) return true;
+        return false;
+    }
+
+    // Ngũ Tý Nguyên Độn tính Mộ Long Biến Vận (Có xét Đông Chí trùng biến cho 4 sơn Kim)
+    function moLong(son, canNam, laSauDongChi) {
         const s = chuanHoaSon(son);
-        const canIdx = CAN.indexOf(canNam);
+        let canIdx = CAN.indexOf(canNam);
         if (!s || canIdx < 0) return null;
+
         const hanhSon = SON_HANH[s];
+        let daTrungBien = false;
+
+        // Quy tắc Hiệp Kỷ: "Bốn sơn Càn, Hợi, Đoài, Đinh chính vận thuộc Kim... Sau Đông chí lại trùng biến"
+        if (hanhSon === 'Kim' && laSauDongChi) {
+            canIdx = (canIdx + 1) % 10;
+            daTrungBien = true;
+        }
+
         const chiMo = HANH_RA_MO[hanhSon];
         const stemTy = (2 * (canIdx % 5)) % 10;
         const canMo = CAN[(stemTy + CHI.indexOf(chiMo)) % 10];
         const na = napAm(canMo + ' ' + chiMo);
-        return { son: s, hanhSon: hanhSon, chiMo: chiMo, canChi: na.canChi, napAm: na.ten, hanh: na.hanh };
+        const hanhKy = HANH_BI_KHAC_BOI[na.hanh];
+
+        return {
+            son: s,
+            hanhSon: hanhSon,
+            chiMo: chiMo,
+            canChi: na.canChi,
+            napAm: na.ten,
+            hanh: na.hanh,
+            hanhKy: hanhKy,
+            daTrungBien: daTrungBien,
+            canDungTinh: CAN[canIdx]
+        };
     }
 
-    function quanHe(hanhMo, hanhX) {
+    function quanHe(hanhMo, hanhX, laTruNien) {
         const m = CONFIG.mucTheoQuanHe;
-        if (hanhX === hanhMo)       return { quanHe:'Đồng hành mộ long',       muc: m.dongHanh };
-        if (SINH[hanhX] === hanhMo) return { quanHe:'Sinh mộ long',            muc: m.sinhMoLong };
-        if (KHAC[hanhMo] === hanhX) return { quanHe:'Bị mộ long khắc',         muc: m.biMoLongKhac };
-        if (SINH[hanhMo] === hanhX) return { quanHe:'Mộ long sinh ra (tiết khí)', muc: m.moLongSinh };
-        return                             { quanHe:'Khắc mộ long',            muc: m.khacMoLong };
+        if (hanhX === hanhMo)       return { quanHe:'Đồng hành mộ long',        muc: m.dongHanh };
+        if (SINH[hanhX] === hanhMo) return { quanHe:'Sinh mộ long (Tiếp khí)',  muc: m.sinhMoLong };
+        if (KHAC[hanhMo] === hanhX) {
+            return {
+                quanHe: laTruNien ? 'Mộ vận khắc Thái tuế (Đặc biệt cát)' : 'Bị mộ long khắc',
+                muc: laTruNien ? m.biMoLongKhacNien : m.biMoLongKhac
+            };
+        }
+        if (SINH[hanhMo] === hanhX) return { quanHe:'Mộ long sinh ra (Tiết khí)', muc: m.moLongSinh };
+        return                             { quanHe:'Khắc mộ long (Phạm kỵ)',  muc: m.khacMoLong };
     }
 
     function danhGiaTru(tenTru, canChiText, mo) {
         const na = napAm(canChiText);
         if (!na) return { tru: tenTru, canChi: canChiText || '?', loi: true, muc: null };
-        const q = quanHe(mo.hanh, na.hanh);
+        const q = quanHe(mo.hanh, na.hanh, tenTru === 'Niên');
         return {
             tru: tenTru, canChi: na.canChi, napAm: na.ten, hanh: na.hanh,
             quanHe: q.quanHe, muc: q.muc, nhanMuc: NHAN_MUC[q.muc]
@@ -159,7 +203,8 @@
         if (!ctx.socVong || !ctx.gio || !ctx.gio.canChi) return { loi: 'Không đọc được can chi ngày/giờ.' };
 
         const canNam = ctx.tietKhi.canChiNam.split(' ')[0];
-        const mo = moLong(s, canNam);
+        const laSauDongChi = kiemTraSauDongChiTruocLapXuan(y, m, d, ctx);
+        const mo = moLong(s, canNam, laSauDongChi);
 
         const nien  = danhGiaTru('Niên',  ctx.tietKhi.canChiNam,   mo);
         const thang = danhGiaTru('Tháng', ctx.tietKhi.canChiThang, mo);
@@ -177,7 +222,6 @@
     }
 
     // ---------- QUÉT KHOẢNG NGÀY ----------
-    // tu/den: {y,m,d}. opts: { chiGio:[...], chiLay:['DAI_CAT','CAT','TRUNG_SACH'] }
     function quetKhoang(son, tu, den, opts) {
         opts = opts || {};
         const dsChi = opts.chiGio || CHI;
@@ -197,10 +241,9 @@
     }
 
     // =========================================================
-    //  GIAO DIỆN TỰ ĐỘNG (không cần sửa total.html)
-    //  Tự chèn nút nổi "🏠 Trạch Cát" ở góc phải dưới + hộp thoại riêng.
+    //  GIAO DIỆN TỰ ĐỘNG (Nút nổi tím + Bổ túc thông tin Mộ vận)
     // =========================================================
-    const MAU = { DAI_CAT:'#15803d', CAT:'#65a30d', TRUNG_SACH:'#b45309' };
+    const MAU = { DAI_CAT:'#15803d', CAT:'#65a30d', TRUNG_SACH:'#b45309', HA_SACH:'#b91c1c' };
 
     function htmlKetQua(ds) {
         if (!ds.length) return '<p style="color:#b91c1c">Không có ngày giờ nào đạt mức đã chọn trong khoảng này.</p>';
@@ -211,10 +254,11 @@
         for (const k in nhom) {
             if (++dem > 120) { html += '<p>… còn nữa, hãy thu hẹp khoảng ngày.</p>'; break; }
             const a = nhom[k], f = a[0], dd = f.ngayDuong;
+            const noteTrungBien = f.moLong.daTrungBien ? ' <span style="color:#7c3aed;font-weight:700">[Sau Đông Chí: Kim sơn trùng biến sang Can ' + f.moLong.canDungTinh + ']</span>' : '';
             html += '<div class="tc-day"><div class="tc-dayh"><b>' + pad(dd.d) + '/' + pad(dd.m) + '/' + dd.y + '</b>'
                  + ' · Ngày ' + f.ngay.canChi + ' · Tháng ' + f.thang.canChi + ' · Năm ' + f.nien.canChi
-                 + '<br><small>Sơn ' + f.son + ' (' + f.hanhSon + ') · Mộ long: ' + f.moLong.canChi + ' – ' + f.moLong.napAm + ' (' + f.moLong.hanh + ')'
-                 + ' · Niên: ' + f.nien.napAm + ' → ' + f.nien.quanHe + '</small></div>';
+                 + '<br><small>Sơn ' + f.son + ' (Chính vận: ' + f.hanhSon + ') · <b>Biến vận (Mộ khố): ' + f.moLong.canChi + ' – ' + f.moLong.napAm + ' (' + f.moLong.hanh + ' vận)</b>' + noteTrungBien
+                 + '<br>⚠️ <b>Kỵ dùng Năm/Tháng/Ngày/Giờ hành: ' + f.moLong.hanhKy + '</b> · Niên: ' + f.nien.napAm + ' → <b>' + f.nien.quanHe + '</b></small></div>';
             a.forEach(r => {
                 html += '<div class="tc-row"><span style="color:' + (MAU[r.loai] || '#444') + ';font-weight:700">' + r.nhanLoai + '</span> · Giờ ' + r.chiGio
                      + ' (' + r.gio.canChi + ' – ' + r.gio.napAm + ')'
@@ -237,6 +281,7 @@
             '#tcBox h3{margin:0 0 4px}#tcBox label{display:block;margin:8px 0 2px;font-weight:600}' +
             '#tcBox select,#tcBox input{width:100%;padding:8px;box-sizing:border-box;font-size:14px}' +
             '.tc-2{display:flex;gap:8px}.tc-2>div{flex:1}' +
+            '.tc-note{background:#fef3c7;border-left:3px solid #d97706;padding:8px 10px;margin:8px 0;font-size:12.5px;color:#78350f;border-radius:4px}' +
             '#tcGo{margin-top:12px;width:100%;background:#7c3aed;color:#fff;border:0;border-radius:8px;padding:11px;font-size:15px;font-weight:700;cursor:pointer}' +
             '#tcX{float:right;border:0;background:none;font-size:22px;cursor:pointer}' +
             '.tc-day{border:1px solid #ddd;border-radius:8px;margin-top:10px;overflow:hidden}' +
@@ -245,16 +290,16 @@
 
         const sons = ['Tý','Quý','Sửu','Cấn','Dần','Giáp','Mão','Ất','Thìn','Tốn','Tỵ','Bính','Ngọ','Đinh','Mùi','Khôn','Thân','Canh','Dậu','Tân','Tuất','Càn','Hợi','Nhâm'];
         const alias = { 'Tý':'Khảm', 'Ngọ':'Ly', 'Mão':'Chấn', 'Dậu':'Đoài' };
-        const optSon = sons.map(s => '<option value="' + s + '">' + s + (alias[s] ? ' (' + alias[s] + ')' : '') + ' – ' + SON_HANH[s] + '</option>').join('');
+        const optSon = sons.map(s => '<option value="' + s + '">' + s + (alias[s] ? ' (' + alias[s] + ')' : '') + ' – Chính vận: ' + SON_HANH[s] + '</option>').join('');
         const iso = dt => dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
         const hn = new Date(), sau = new Date(hn.getTime() + 30 * 86400000);
 
         const ov = document.createElement('div');
         ov.id = 'tcOv';
         ov.innerHTML =
-            '<div id="tcBox"><button id="tcX">×</button><h3>🏠 Trạch Cát – Mộ Long</h3>' +
-            '<small>Chọn sơn tọa của nhà/mộ và khoảng ngày dự định khởi công.</small>' +
-            '<label>Sơn tọa</label><select id="tcSon">' + optSon + '</select>' +
+            '<div id="tcBox"><button id="tcX">×</button><h3>🏠 Trạch Cát – Mộ Long Biến Vận (v3)</h3>' +
+            '<div class="tc-note"><b>Phạm vi vận dụng (Hiệp Kỷ):</b> Chỉ dùng khi <b>đào đất thật sự</b> hoặc sửa chữa phần ngầm có long mạch (không long mạch thì lấy Tọa làm Long). Sửa chữa nhỏ phần nổi không cần xét Mộ Long. Đại sự cần chuyên gia thẩm định.</div>' +
+            '<label>Sơn tọa / Long mạch</label><select id="tcSon">' + optSon + '</select>' +
             '<div class="tc-2"><div><label>Từ ngày</label><input type="date" id="tcTu" value="' + iso(hn) + '"></div>' +
             '<div><label>Đến ngày (tối đa 92 ngày)</label><input type="date" id="tcDen" value="' + iso(sau) + '"></div></div>' +
             '<label>Mức hiển thị</label><select id="tcMuc"><option value="1">Đại cát + Cát</option><option value="2">Thêm Trung sách (niên tiểu hung)</option><option value="3">Thêm cả Hạ sách (niên đại hung)</option></select>' +
@@ -266,7 +311,7 @@
         document.body.appendChild(btn);
 
         const toast = document.createElement('div');
-        toast.textContent = '✅ Trạch Cát v2 đã nạp';
+        toast.textContent = '✅ Trạch Cát v3 (Hiệp Kỷ) đã nạp';
         toast.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:99999;background:#15803d;color:#fff;padding:8px 14px;border-radius:8px;font:14px system-ui,sans-serif';
         document.body.appendChild(toast);
         setTimeout(() => toast.remove(), 4000);
@@ -303,7 +348,7 @@
         moLong: moLong, napAm: napAm, quanHe: quanHe, chuanHoaSon: chuanHoaSon,
         danhGiaThoiDiem: danhGiaThoiDiem, quetKhoang: quetKhoang, htmlKetQua: htmlKetQua,
         CONFIG: CONFIG, NHAN_LOAI: NHAN_LOAI, NHAN_MUC: NHAN_MUC,
-        _data: { SON_HANH: SON_HANH, HANH_RA_MO: HANH_RA_MO, NAP_AM: NAP_AM }
+        _data: { SON_HANH: SON_HANH, HANH_RA_MO: HANH_RA_MO, HANH_BI_KHAC_BOI: HANH_BI_KHAC_BOI, NAP_AM: NAP_AM }
     };
     root.TrachCat = API;
     if (typeof module !== 'undefined' && module.exports) module.exports = API;
